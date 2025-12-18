@@ -8,12 +8,18 @@ Sequences of data from subjects are segmented into Process Windows Np windows of
 be of size [Tp, S] for S number of features. These windows will be intended for mid-level prediction.
 
 ## Low Level Prediction
-These Process Windows are then processed by 3 process predictors. First, a Process Windows [Np, Tp, S] is segmented into
+These Process Windows are then processed by 3 process predictors. First, a Process Windows [1, Tp, S] is segmented into
 N_lp low-level windows of size T_lp. So each Process Window [1, Tp, S] is segmented into -> [1, N_lp, T_lp, S], sequence 
 of low-level windows. Second, the predictor will map sequence of low-level windows into a sequence of low-level 
-predictions -> [1, N_lp, K]
+predictions -> [1, N_lp, K]. 
 
 ## Mid Level Prediction
+
+These Process Windows are then processed by 3 process predictors. First, a Process Windows [Np, Tp, K] is segmented into
+N_lp low-level windows of size T_lp, with K the one-hot encoding of the low-level process. So each Process Window [1, Tp, S] is segmented into -> [1, N_lp, T_lp, S], sequence 
+of low-level windows. Second, the predictor will map sequence of low-level windows into a sequence of low-level 
+predictions -> [1, N_lp, K]. 
+
 
 We will have 3 methods for process predictions:
 - Transformer
