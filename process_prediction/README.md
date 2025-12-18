@@ -13,6 +13,11 @@ These Process Windows will be then processed by 3 process predictors. For predic
 into -> [1, N_lp, T_lp, S], sequence of low-level windows. Second, the predictor will map sequence of low-level windows 
 into a sequence of low-level predictions -> [1, N_lp, T_lp, K]. 
 
+For example, for 30mins at 100Hz, the Tp = 180000, the Process Windows are [Np, Tp, S] = [Np, 180000, S]. 
+If the input is the number of activity classes, S=
+For a low-level window of duration of 5s, the low-level windows will be of shape [Np, 360, 500, S]. 
+For 29 low-level process labels, the output of the model will be [Np, 360, 500, 29]
+
 ## Mid Level Prediction
 
 These Process Windows are then processed by 3 process predictors. First, a Process Windows [Np, Tp, K] is segmented into
