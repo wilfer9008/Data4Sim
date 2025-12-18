@@ -4,17 +4,19 @@ Here, you will find the code for predicting processes from time series data cont
 The goal is to predict low-level, mid-level and high-level processes from the time series data.
 The code is structured as follows.
 
-Sequences of data from subjects are segmented into Process Windows Np windows of size Tp. So, each segmented window will be of size 
-[Tp, S] for S number of features. These windows will be intended for mid-level prediction.
+Sequences of data from subjects are segmented into Process Windows Np windows of size Tp. So, each segmented window will 
+be of size [Tp, S] for S number of features. These windows will be intended for mid-level prediction.
 
+## Low Level Prediction
 These Process Windows are then processed by 3 process predictors. First, a Process Windows [Np, Tp, S] is segmented into
-N_lp low-level windows of size T_lp. So each Process Window [1, Tp, S] is segmented into -> [1, N_lp, T_lp, S], sequence of 
-low-level windows. Second, the predictor will map sequence of low-level windows into a sequence of low-level predictions
--> [1, N_lp, K]
+N_lp low-level windows of size T_lp. So each Process Window [1, Tp, S] is segmented into -> [1, N_lp, T_lp, S], sequence 
+of low-level windows. Second, the predictor will map sequence of low-level windows into a sequence of low-level 
+predictions -> [1, N_lp, K]
+
+## Mid Level Prediction
 
 We will have 3 methods for process predictions:
 - Transformer
-  - This network will map a sequence input, either a seque into an output window
 - LSTM
 - HMM-GMM# Process Prediction
 
