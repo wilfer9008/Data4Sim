@@ -14,8 +14,8 @@ into -> [1, N_lp, T_lp, S], sequence of low-level windows. Second, the predictor
 into a sequence of low-level predictions -> [1, N_lp, T_lp, K]. 
 
 For example, for 30mins at 100Hz, the Tp = 180000, the Process Windows are [Np, Tp, S] = [Np, 180000, S]. 
-If the input is the number of activity classes, S=
-For a low-level window of duration of 5s, the low-level windows will be of shape [Np, 360, 500, S]. 
+If the input is the number of activity classes S=13 and one-hot encoding notation, so the Process Windows [Np, 180000, 13]
+For a low-level window of duration of 5s, the low-level windows will be of shape [Np, 360, 500, 13]. 
 For 29 low-level process labels, the output of the model will be [Np, 360, 500, 29]
 
 ## Mid Level Prediction
@@ -25,6 +25,10 @@ N_lp low-level windows of size T_lp, with K the one-hot encoding of the low-leve
 of low-level windows. Second, the predictor will map sequence of low-level windows into a sequence of low-level 
 predictions -> [1, N_lp, K]. 
 
+For example, for 30mins at 100Hz, the Tp = 180000, the Process Windows are [Np, Tp, S] = [Np, 180000, S]. 
+If the input is the number of low-level process classes S=29 and one-hot encoding notation, so the Process Windows [Np, 180000, 29]
+For a low-level window of duration of 5s, the low-level windows will be of shape [Np, 360, 500, 29]. 
+For 29 low-level process labels, the output of the model will be [Np, 360, 500, 8]
 
 We will have 3 methods for process predictions:
 - Transformer
