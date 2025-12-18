@@ -13,9 +13,16 @@ These Process Windows will be then processed by 3 process predictors. For predic
 into -> [1, N_lp, T_lp, S], sequence of low-level windows. Second, the predictor will map sequence of low-level windows 
 into a sequence of low-level predictions -> [1, N_lp, T_lp, K]. 
 
+### From activity to mid-level
 For example, for 30mins at 100Hz, the Tp = 180000, the Process Windows are [Np, Tp, S] = [Np, 180000, S]. 
 If the input is the number of activity classes S=13 and one-hot encoding notation, so the Process Windows [Np, 180000, 13]
 For a low-level window of duration of 5s, the low-level windows will be of shape [Np, 360, 500, 13]. 
+For 29 low-level process labels, the output of the model will be [Np, 360, 500, 29]
+
+### From sensors to mid-level: end to end
+For example, for 30mins at 100Hz, the Tp = 180000, the Process Windows are [Np, Tp, S] = [Np, 180000, S]. 
+If the input is the number of sensors S=18 and one-hot encoding notation, so the Process Windows [Np, 180000, 18]
+For a mid-level window of duration of 5s, the low-level windows will be of shape [Np, 360, 500, 18]. 
 For 29 low-level process labels, the output of the model will be [Np, 360, 500, 29]
 
 ## Mid Level Prediction
