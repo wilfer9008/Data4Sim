@@ -16,6 +16,7 @@ import pickle
 import numpy as np
 from projects import Project
 from sliding_window import sliding_window
+from tcnn_imu import Network
 
 class Preprocessing(object):
     '''
@@ -34,7 +35,7 @@ class Preprocessing(object):
 
     def get_projects(self):
         # Opening JSON file
-        f = open(self.root + "datasets.json")
+        f = open(self.root + "datasets_process.json")
         self.project_list = json.load(f)
         f.close()
 
@@ -100,7 +101,7 @@ class Preprocessing(object):
         @param usage_modus: type of subset (train, val, test)
         """
 
-        unique_attrs = np.empty(shape = (0, 85))
+        unique_attrs = np.empty(shape = (0, 56))
         # Iterates over the recordings
         print(usage_modus, " modus with IDS:", ids)
         for P in ids:
@@ -117,15 +118,15 @@ class Preprocessing(object):
                     print("\nLabels loaded in modus {} with shape {}".format(usage_modus, labels.shape))
 
                     # Deleting rows containing the "Null" class if wanted
-                    class_labels_null = np.where(labels_process == 0)[0]
-                    class_labels_error = np.where(labels_process == 8)[0]
-                    class_labels_ignore = np.where(labels_activities == 0)[0]
-                    class_labels = np.unique(np.concatenate((class_labels_null, class_labels_error, class_labels_ignore)))
-                    labels = np.delete(labels, class_labels, 0)
-                    print("\nLabel Null, Error, Ignore eliminated {}".format(labels.shape))
+                    #class_labels_null = np.where(labels_process == 0)[0]
+                    #class_labels_error = np.where(labels_process == 8)[0]
+                    #class_labels_ignore = np.where(labels_activities == 0)[0]
+                    #class_labels = np.unique(np.concatenate((class_labels_null, class_labels_error, class_labels_ignore)))
+                    #labels = np.delete(labels, class_labels, 0)
+                    #print("\nLabel Null, Error, Ignore eliminated {}".format(labels.shape))
 
-                    class_labels = [0, 8, 9]
-                    labels = np.delete(labels, class_labels, 1)
+                    #class_labels = [0, 8, 9]
+                    #labels = np.delete(labels, class_labels, 1)
 
                     labels = np.unique(labels, axis=0)
                     unique_attrs = np.concatenate((unique_attrs, labels), axis=0)
@@ -148,11 +149,12 @@ class Preprocessing(object):
                 print("\nError {}.".format(e))
                 break
 
+        '''
         unique_attrs_total = np.unique(unique_attrs, axis=0)
 
-        processes = np.argmax(unique_attrs_total[:, :7], axis=1)
-        activities = np.argmax(unique_attrs_total[:, 7:19], axis=1)
-        attrs = unique_attrs_total[:, 19:]
+        processes = np.argmax(unique_attrs_total[:, :10], axis=1)
+        activities = np.argmax(unique_attrs_total[:, 10:41], axis=1)
+        attrs = unique_attrs_total[:, 41:]
 
         attr_rep_processes = np.zeros(shape=(unique_attrs_total.shape[0], 62))
         attr_rep_processes[:, 0] = processes
@@ -167,6 +169,7 @@ class Preprocessing(object):
 
         np.savetxt(self.root + "Segmented_windows/" + self.project_list[
             'name'] + "/" + usage_modus + "_attr_rep_activities.csv", attr_rep_activities, delimiter="\n", fmt="%s")
+        '''
 
         return
 
@@ -213,6 +216,21 @@ class Preprocessing(object):
 
         return f
 
+    def get_csv(self, path, skiprows=1):
+        """
+        gets data from a csv file from a given path.
+
+        returns a numpy array
+
+        @param path: path to file
+        @param skiprows: skiprows in case annotations contain a header
+
+        @return: numpy array
+        """
+
+        data = np.loadtxt(path, delimiter=",", skiprows=skiprows)
+        return data
+
     def generate_data(self, ids, data_dir=None, usage_modus="train"):
         """
         creates files for each of the sequences extracted from a file
@@ -230,19 +248,17 @@ class Preprocessing(object):
 
         counter_seq = 0
         counter_file_label = -1
-        hist_classes_all = np.zeros((8))
-        hist_classes_acts_all = np.zeros((14))
+        hist_classes_all = np.zeros((10))
+        hist_classes_acts_all = np.zeros((31))
 
         # Iterates over the recordings
         print(usage_modus, " modus with IDS:", ids)
         for P in ids:
             try:
-                project = Project(self.project_list['root'], P)
-                project.load_annotated_sync_data()
-                print("\n{}\n{}".format(project.root, project.project_path))
+                print("\n{}".format(self.project_list['root']))
                 try:
                     # getting raw data
-                    data = project.raw_data
+                    data = self.get_csv(self.project_list['root'] + P +"RawData/Sync_V1/" + P.split("/")[1] + "_imu_data.csv")
                     data_x = data[:, 1:]
                     print("\nFiles loaded in modus {}\n{}".format(usage_modus, data.shape))
                 except:
@@ -251,25 +267,25 @@ class Preprocessing(object):
 
                 try:
                     # Getting labels and attributes
-                    labels = project.annotations_v1.data
-                    if labels.shape[1] != 86:
+                    labels = self.get_csv(self.project_list['root'] + P +"RawData/Sync_V1/" + P.split("/")[1] + "_labels.csv")
+                    if labels.shape[1] != 56:
                         print("ERROR: NOT UPDATED ANNOTATION FILE------- SIZE {}".format(labels.shape))
                     else:
                         print("UPDATED ANNOTATION FILE------- SIZE {}".format(labels.shape))
 
-                    labels_process = project.annotations_v1.annotations['Process']
-                    labels_activities = project.annotations_v1.annotations['Activity']
-                    print("\nLabels loaded in modus {} with shape {}".format(usage_modus, labels.shape))
+                    #labels_process = project.annotations_v1.annotations['Mid_Process']
+                    #labels_activities = project.annotations_v1.annotations['Activity']
+                    #print("\nLabels loaded in modus {} with shape {}".format(usage_modus, labels.shape))
 
                     # Deleting rows containing the "Null" class if wanted
-                    class_labels_null = np.where(labels_process == 0)[0]
-                    class_labels_error = np.where(labels_process == 8)[0]
-                    class_labels_ignore = np.where(labels_activities == 0)[0]
+                    #class_labels_null = np.where(labels_process == 0)[0]
+                    #class_labels_error = np.where(labels_process == 8)[0]
+                    #class_labels_ignore = np.where(labels_activities == 0)[0]
                     #class_labels = np.unique(np.concatenate((class_labels_null, class_labels_error)))
                     #class_labels = np.unique(np.concatenate((class_labels_null, class_labels_error, class_labels_ignore)))
                     #data_x = np.delete(data_x, class_labels_error, 0)
                     #labels = np.delete(labels, class_labels_error, 0)
-                    print("\nLabel Null, Error, Ignore eliminated {}".format(labels.shape))
+                    #print("\nLabel Null, Error, Ignore eliminated {}".format(labels.shape))
 
                     # Deleting rows containing the "Error" class if wanted
                     #class_labels = np.where(labels_process == 8)[0]
@@ -284,17 +300,17 @@ class Preprocessing(object):
                     #print("\nLabel Ignore eliminated {}".format(labels.shape))
 
 
-                    null_elements = labels[:, 0] * 0
+                    #null_elements = labels[:, 0] * 0
                     #class_none_ignore_labels = np.unique(np.concatenate((class_labels_null, class_labels_ignore)))
-                    null_elements[class_labels_null] = 1
-                    labels[:, 0] = null_elements
-                    labels[:, 9] = null_elements
-                    class_labels = [8]
-                    labels = np.delete(labels, class_labels, 1)
+                    #null_elements[class_labels_null] = 1
+                    #labels[:, 0] = null_elements
+                    #labels[:, 9] = null_elements
+                    #class_labels = [8]
+                    #labels = np.delete(labels, class_labels, 1)
 
-                    data_x = np.delete(data_x, class_labels_error, 0)
-                    labels = np.delete(labels, class_labels_error, 0)
-                    print("\nLabel attrs eliminated {}".format(labels.shape))
+                    #data_x = np.delete(data_x, class_labels_error, 0)
+                    #labels = np.delete(labels, class_labels_error, 0)
+                    #print("\nLabel attrs eliminated {}".format(labels.shape))
 
                 except KeyboardInterrupt:
                     print("\nYou cancelled the operation.")
@@ -318,17 +334,17 @@ class Preprocessing(object):
 
                     # Statistics
 
-                    hist_classes = np.bincount(np.argmax(Y.reshape((-1, 85))[:, 0:8], axis=1), minlength=8)
+                    hist_classes = np.bincount(np.argmax(Y.reshape((-1, 56))[:, 0:10], axis=1), minlength=10)
                     hist_classes_all += hist_classes
                     print("\nNumber of seq per process {}".format(hist_classes))
                     print("Total Number of seq per process {}".format(hist_classes_all))
 
-                    hist_classes_acts = np.bincount(np.argmax(Y.reshape((-1, 85))[:, 8:22], axis=1), minlength=14)
+                    hist_classes_acts = np.bincount(np.argmax(Y.reshape((-1, 56))[:, 10:41], axis=1), minlength=31)
                     hist_classes_acts_all += hist_classes_acts
                     print("hist_classes_acts", hist_classes_acts.shape)
                     print("hist_classes_acts_all", hist_classes_acts_all.shape)
                     print("Y", Y.shape)
-                    print("Y.reshape((-1, 85))[:, 8:22]", Y.reshape((-1, 85))[:, 8:22].shape)
+                    print("Y.reshape((-1, 85))[:, 8:22]", Y.reshape((-1, 56))[:, 10:41].shape)
                     print("\nNumber of seq per activity {}".format(hist_classes_acts))
                     print("Total Number of seq per activity {}".format(hist_classes_acts_all))
 
@@ -340,6 +356,13 @@ class Preprocessing(object):
                             # print "Creating sequence file number {} with id {}".format(f, counter_seq)
                             seq = np.reshape(X[f], newshape=(1, X.shape[1], X.shape[2]))
                             seq = np.require(seq, dtype=np.float16)
+
+                            network_obj = Network(self.config)
+                            network_obj.load_state_dict(
+                                torch.load(self.config["folder_exp"] + "network.pt", map_location=self.device,
+                                           weights_only=False)["state_dict"])
+                            network_obj.eval()
+
 
                             obj = {
                                 "data": seq,
@@ -373,7 +396,7 @@ class Preprocessing(object):
                     del data_x
                     del X
                     del labels
-                    del class_labels
+                    #del class_labels
 
                 except KeyboardInterrupt:
                     print("\nYou cancelled the operation.")
@@ -425,11 +448,10 @@ class Preprocessing(object):
         if not os.path.exists(data_dir_val):
             os.makedirs(data_dir_val)
 
-        data_dir_test = base_directory + "sequences_test_BBr_MS1_P1-1/"
+        data_dir_test = base_directory + "sequences_test/"
         if not os.path.exists(data_dir_test):
             os.makedirs(data_dir_test)
 
-        '''
         counter_file_label = self.generate_data(
             self.train_ids,
             data_dir=data_dir_train,
@@ -440,7 +462,6 @@ class Preprocessing(object):
             data_dir=data_dir_val,
             usage_modus="val"
         )
-        '''
 
         self.generate_data(
             self.test_ids,
@@ -451,9 +472,9 @@ class Preprocessing(object):
 
         #self.get_unique_attrs(self.train_final_ids, data_dir=data_dir_train, usage_modus="train")
 
-        #self.generate_CSV(base_directory, "train.csv", data_dir_train)
-        #self.generate_CSV(base_directory, "val.csv", data_dir_val)
-        self.generate_CSV(base_directory, "test_BBr_MS1_P1-1.csv", data_dir_test)
+        self.generate_CSV(base_directory, "train.csv", data_dir_train)
+        self.generate_CSV(base_directory, "val.csv", data_dir_val)
+        self.generate_CSV(base_directory, "test.csv", data_dir_test)
         #self.generate_CSV_final(base_directory + "train_final.csv", data_dir_train, data_dir_val)
 
         #print("number of segmented windows of the training set {}".format(counter_file_label))
@@ -461,8 +482,7 @@ class Preprocessing(object):
         return
 
 if __name__ == "__main__":
-    path = "/mnt/data/femo/Documents/CAR/"
-    #path = "/home/fernando/Documents/gpu_2_data/Documents/CAR/"
+    path = "/home/fernando/Documents/Repositories/checkouts/Data4Sim/process_prediction/experiments/"
 
     preprocessing = Preprocessing(path)
     preprocessing.create_dataset()
