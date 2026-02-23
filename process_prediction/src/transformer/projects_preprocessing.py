@@ -351,25 +351,13 @@ class Preprocessing(object):
 
                     counter_file_label += 1
 
+
                     for f in range(X.shape[0]):
                         try:
                             # print "Creating sequence file number {} with id {}".format(f, counter_seq)
                             seq = np.reshape(X[f], newshape=(1, X.shape[1], X.shape[2]))
                             seq = np.require(seq, dtype=np.float16)
 
-                            network_obj = Network(self.config)
-                            network_obj.load_state_dict(
-                                torch.load(self.config["folder_exp"] + "network.pt", map_location=self.device,
-                                           weights_only=False)["state_dict"])
-                            network_obj.eval()
-
-
-                            obj = {
-                                "data": seq,
-                                "labels": Y[f],
-                                "identity": P,
-                                "label_file": counter_file_label,
-                            }
                             file_name = open(os.path.join(data_dir, "seq_{0:07}.pkl".format(counter_seq)), "wb")
 
                             pickle.dump(obj, file_name, protocol=pickle.HIGHEST_PROTOCOL)
