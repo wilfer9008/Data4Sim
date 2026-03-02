@@ -21,18 +21,15 @@ from torch.utils.data import DataLoader
 
 from HARWindows import HARWindows
 from metrics import Metrics
-from network import Network
-from freezing_network_sections import Freezing
+from tcnn_imu import Network
+#from freezing_network_sections import Freezing
 
 # from sacred import Experiment
 
 range_scores = {}
-range_scores["Process"] = np.arange(0, 8)
-range_scores["Activity"] = np.arange(8, 22)
-range_scores["Short Activity"] = np.arange(22, 45)
-range_scores["Pose"] = np.arange(45, 79)
-range_scores["temporal_group"] = np.arange(79, 85)
-range_scores["attrs"] = np.arange(22, 85)
+range_scores["Mid_Process"] = np.arange(0, 10)
+range_scores["Low_Process"] = np.arange(10, 41)
+range_scores["Activity"] = np.arange(41, 56)
 
 class Network_User(object):
     """
@@ -50,8 +47,8 @@ class Network_User(object):
         self.device = torch.device("cuda:{}".format(self.config["GPU"]) if torch.cuda.is_available() else "cpu")
         # self.device = torch.device("cpu")
 
-        self.attrs = self.reader_att_rep("atts_per_class_mm_car.txt")
-        self.attr_representation = self.reader_att_rep("atts_per_class_mm_car.txt")
+        self.attrs = self.reader_att_rep("atts_per_class_mm_process.txt")
+        self.attr_representation = self.reader_att_rep("atts_per_class_mm_process.txt")
 
         self.normal = torch.distributions.Normal(torch.tensor([0.0]), torch.tensor([0.001]))
         self.normal_mult = torch.distributions.Normal(torch.tensor([1.0]), torch.tensor([0.001]))
@@ -722,20 +719,17 @@ class Network_User(object):
             else:
                 criterion_softmax = nn.CrossEntropyLoss()
 
-        criterion_softmax = nn.CrossEntropyLoss()
-        criterion_activity_softmax = nn.CrossEntropyLoss()
-        criterion_windows_activity_softmax = nn.CrossEntropyLoss()
-        criterion_statistics_activity_attribute = nn.BCELoss()
-        criterion_attribute = nn.BCELoss()
-        criterion_windows_attribute_softmax = nn.BCELoss()
+        criterion_mp_softmax = nn.CrossEntropyLoss()
+        criterion_lp_softmax = nn.CrossEntropyLoss()
+        criterion_activities_softmax = nn.CrossEntropyLoss()
 
         # Setting the freezing or not freezing from conv layers
-        freezing = Freezing(self.config)
-        if self.config["freeze_options"]:
-            #network_obj = self.set_required_grad(network_obj)
-            network_obj = freezing.set_required_grad_branches_on(network_obj)
-        else:
-            network_obj = freezing.set_required_default(network_obj)
+        #freezing = Freezing(self.config)
+        #if self.config["freeze_options"]:
+        #    #network_obj = self.set_required_grad(network_obj)
+        #    network_obj = freezing.set_required_grad_branches_on(network_obj)
+        #else:
+        #    network_obj = freezing.set_required_default(network_obj)
 
         # Setting optimizer
         optimizer = optim.RMSprop(network_obj.parameters(), lr=self.config["lr"], alpha=0.95)
@@ -794,69 +788,17 @@ class Network_User(object):
                 train_batch_v = harwindow_batched["data"]
                 #print("Labels: ", harwindow_batched["labels"].size())
                 # overall process + acts + attrs
-                train_batch_l_p_class = torch.argmax(harwindow_batched["labels"][:, :, range_scores['Process']], axis=2)
-                train_batch_l_p_class = train_batch_l_p_class.mode(dim=1).values
-                train_batch_l_p_class = train_batch_l_p_class.reshape(-1)
+                train_batch_l_mp_class = torch.argmax(harwindow_batched["labels"][:, :, range_scores['Mid_Process']], axis=2)
+                train_batch_l_mp_class = train_batch_l_mp_class.mode(dim=1).values
+                train_batch_l_mp_class = train_batch_l_mp_class.reshape(-1)
+
+                train_batch_l_lp_class = torch.argmax(harwindow_batched["labels"][:, :, range_scores['Low_Process']], axis=2)
+                train_batch_l_lp_class = train_batch_l_lp_class.mode(dim=1).values
+                train_batch_l_lp_class = train_batch_l_lp_class.reshape(-1)
 
                 train_batch_l_overall_a_class = torch.argmax(harwindow_batched["labels"][:, :, range_scores['Activity']], axis=2)
                 train_batch_l_overall_a_class = train_batch_l_overall_a_class.mode(dim=1).values
                 train_batch_l_overall_a_class = train_batch_l_overall_a_class.reshape(-1)
-
-                train_batch_l_overall_attr_class = harwindow_batched["labels"][:, :, range_scores['attrs']]
-                #print("attrs overall ", train_batch_l_overall_attr_class.size())
-                train_batch_l_overall_attr_class = torch.sum(train_batch_l_overall_attr_class, axis=1) / 1000
-                #print("attrs overall ", train_batch_l_overall_attr_class.size())
-
-                train_batch_l_a_class = harwindow_batched["labels"][:, :, range_scores['Activity']] # input [B, 13, T]
-                #print("Labels 0", train_batch_l_a_class.size())
-                train_batch_l_a_class = train_batch_l_a_class.permute(0, 2, 1)  # input [B, 13, T]
-                #print("Labels 1", train_batch_l_a_class.size())
-                train_batch_l_a_class = train_batch_l_a_class.unfold(dimension=2, size=100, step=10)  # input [B, 13, W, T]
-                #print("Labels 2", train_batch_l_a_class.size())
-                train_batch_l_a_class = train_batch_l_a_class.permute(0, 2, 3, 1)  # input [B, W, T, 13]
-                #print("Labels 3", train_batch_l_a_class.size())
-                batch_windows_classes = train_batch_l_a_class.shape[0]
-                windows_windows_classes = train_batch_l_a_class.shape[1]
-                #print("batch", batch_windows_classes, "windows", windows_windows_classes)
-                train_batch_l_a_class = train_batch_l_a_class.reshape(-1, train_batch_l_a_class.size()[2], train_batch_l_a_class.size()[3]) # input [B x W, T, 13]
-                #print("Labels 4", train_batch_l_a_class.size())
-                train_batch_l_a_class = torch.argmax(train_batch_l_a_class, axis=2) # input [B x W, T x 1]
-                #print("Labels 4", train_batch_l_a_class.size())
-                #statistics_classes = torch.bincount(train_batch_l_a_class[0], minlength=self.config["train_show"])
-                #print("statistics side windows reshaped", statistics_classes.size())
-                #print("Labels 5", train_batch_l_a_class.size())
-
-                train_batch_l_attrs_class = harwindow_batched["labels"][:, :, range_scores['attrs']]
-                #print("attrs: raw", train_batch_l_attrs_class.size())
-                train_batch_l_attrs_class = train_batch_l_attrs_class.permute(0, 2, 1)  # input [B, 1, C, T]
-                #print("attrs: time end", train_batch_l_attrs_class.size())
-                train_batch_l_attrs_class = train_batch_l_attrs_class.unfold(dimension=2, size=100, step=10)  # input [B, 1, C, W, T]
-                #print("attrs: undolding", train_batch_l_attrs_class.size())
-                train_batch_l_attrs_class = train_batch_l_attrs_class.permute(0, 2, 3, 1)  # input [B, W, 1, T, C]
-                #print("attrs: permute", train_batch_l_attrs_class.size())
-                train_batch_l_attrs_class = train_batch_l_attrs_class.reshape(-1, train_batch_l_attrs_class.size()[2], train_batch_l_attrs_class.size()[3])
-                #print("attrs: reshape", train_batch_l_attrs_class.size())
-                #print("attrs: indices", train_batch_l_a_class.mode(dim=0).indices)
-                #print("attrs: size indices", train_batch_l_a_class.mode(dim=0).indices.size())
-                #train_batch_l_attr = train_batch_l_attrs_class[:, 50, :]
-                train_batch_l_attr = torch.sum(train_batch_l_attrs_class, axis=1) / 100
-                #print("attrs: final ", train_batch_l_attr.size())
-                #print("attrs: final ", train_batch_l_attr[0])
-
-                train_batch_l_a_class = train_batch_l_a_class.mode(dim=1).values # input [B x W, T x 1]
-                #print("Labels 6", train_batch_l_a_class.size())
-                train_batch_l_a_class = train_batch_l_a_class.reshape(-1) # input [B x W, T x 1]
-                #print("Labels 7", train_batch_l_a_class.size())
-
-                # print("side windows", train_batch_l_a_class.size())
-                statistics_windows_classes = train_batch_l_a_class.reshape(batch_windows_classes, windows_windows_classes)
-                statistics_classes = torch.zeros((batch_windows_classes, self.config["num_classes"]))
-                #print("side windows reshaped", statistics_windows_classes.size())
-                for b_statistic in range(batch_windows_classes):
-                    statistics_classes[b_statistic] = torch.bincount(statistics_windows_classes[b_statistic],
-                                                                     minlength=self.config["num_classes"]) / windows_windows_classes
-                #print("statistics side windows reshaped", statistics_classes.size())
-                #print("Statistics side windows labels", statistics_classes)
 
                 sys.stdout.write(
                     "\rTraining: Epoch {}/{} Batch {}/{} Itera {} with {} Size {}".format(
@@ -865,7 +807,7 @@ class Network_User(object):
                         b,
                         len(dataLoader_train),
                         itera,
-                        torch.bincount(train_batch_l_a_class, minlength=self.config["num_classes"]),
+                        torch.bincount(train_batch_l_mp_class, minlength=self.config["num_classes"]),
                         harwindow_batched["data"].size()
                         # torch.mean(harwindow_batched["data"][0, 0], axis=0),
                     )
@@ -891,24 +833,15 @@ class Network_User(object):
                 train_batch_v = train_batch_v.to(self.device, dtype=torch.float)
                 train_batch_v *= noise_mult
                 train_batch_v += noise_add
-                train_batch_l_p_class = train_batch_l_p_class.to(
+                train_batch_l_mp_class = train_batch_l_mp_class.to(
                     self.device, dtype=torch.long
                 )  # labels for crossentropy needs long type
+                train_batch_l_lp_class = train_batch_l_lp_class.to(
+                    self.device, dtype=torch.long
+                )
                 train_batch_l_overall_a_class = train_batch_l_overall_a_class.to(
                     self.device, dtype=torch.long
                 )
-                train_batch_l_a_class = train_batch_l_a_class.to(
-                    self.device, dtype=torch.long
-                )
-                train_batch_l_attr = train_batch_l_attr.to(
-                    self.device, dtype=torch.float
-                )  # labels for binerycrossentropy needs float type
-                train_batch_l_overall_attr_class = train_batch_l_overall_attr_class.to(
-                    self.device, dtype=torch.float
-                )  # labels for binerycrossentropy needs float type
-                statistics_classes = statistics_classes.to(
-                    self.device, dtype=torch.float
-                )  # labels for binerycrossentropy needs float type
 
                 #print(train_batch_l_attr.size())
 
@@ -925,85 +858,38 @@ class Network_User(object):
 
                 # NEtwork predictions
                 #print("Device inpt", train_batch_v.get_device())
-                overall_predictions, window_predictions, windows_attrs = network_obj(train_batch_v)
-                #print(" windows_attrs", windows_attrs.size())
+                overall_predictions = network_obj(train_batch_v)
 
-                class_predictions = overall_predictions[:, range_scores["Process"]]
-                activity_predictions = overall_predictions[:, range_scores["Activity"]]
-                attrs_overall_predictions = overall_predictions[:, range_scores["attrs"]]
-
-                # print("side windows", train_batch_l_a_class.size())
-                #print("side windows", window_predictions.size())
-                statistics_window_predictions = window_predictions.reshape(batch_windows_classes, windows_windows_classes,
-                                                                window_predictions.size()[1])
-                #print("side windows reshaped", statistics_window_predictions.size())
-                statistics_window_predictions = torch.argmax(statistics_window_predictions, axis=2)
-                #print("side windows reshaped", statistics_window_predictions.size())
-                statistics_prediction_classes = torch.zeros((batch_windows_classes, self.config["num_classes"]))
-                #print("side windows reshaped", statistics_prediction_classes.size())
-                for b_statistic in range(batch_windows_classes):
-                    statistics_prediction_classes[b_statistic] = torch.bincount(statistics_window_predictions[b_statistic],
-                                                                                minlength=self.config["num_classes"]) / windows_windows_classes
-                #print("statistics side windows reshaped", statistics_prediction_classes.size())
-                #print("Statistics side windows predictions", statistics_prediction_classes)
-
-                #print("loss 1")
-                statistics_prediction_classes = statistics_prediction_classes.to(
-                    self.device, dtype=torch.float
-                )  # labels for binerycrossentropy needs float type
+                mp_predictions = overall_predictions[:, range_scores["Mid_Process"]]
+                lp_predictions = overall_predictions[:, range_scores["Low_Process"]]
+                activities_predictions = overall_predictions[:, range_scores["Activity"]]
 
                 #process
                 #print("loss 2")
-                loss_softmax = criterion_softmax(class_predictions, train_batch_l_p_class) * (
+                loss_mp_softmax = criterion_mp_softmax(mp_predictions, train_batch_l_mp_class) * (
                     1 / self.config["accumulation_steps"]
                 )
 
                 #activity global
                 #print("loss 3")
-                loss_activity_softmax = criterion_activity_softmax(activity_predictions, train_batch_l_overall_a_class) * (
+                loss_lp_softmax = criterion_lp_softmax(lp_predictions, train_batch_l_lp_class) * (
                     1 / self.config["accumulation_steps"]
                 )
 
                 # activity windows
                 #print("loss 4")
-                loss_windows_softmax = criterion_windows_activity_softmax(window_predictions, train_batch_l_a_class) * (
+                loss_activities_softmax = criterion_activities_softmax(activities_predictions, train_batch_l_overall_a_class) * (
                     1 / self.config["accumulation_steps"]
                 )
 
-                # attributes overall
-                #print("loss 5")
-                loss_attribute = criterion_attribute(attrs_overall_predictions, train_batch_l_overall_attr_class) * (
-                    1 / self.config["accumulation_steps"]
-                )
-
-                # attributes windows
-                #print("loss 6")
-                loss_windows_attribute = criterion_windows_attribute_softmax(windows_attrs, train_batch_l_attr) * (
-                    1 / self.config["accumulation_steps"]
-                )
-
-                # statistics windows
-                #print("loss 7")
-                #print(type(statistics_prediction_classes), type(statistics_classes))
-                loss_statistics_classes = criterion_statistics_activity_attribute(statistics_prediction_classes, statistics_classes) * (
-                    1 / self.config["accumulation_steps"]
-                )
-
-                if self.config["classification_target"] == 'Process':
-                    loss = loss_softmax
-                elif self.config["classification_target"] == 'Activity':
-                    loss = loss_activity_softmax
+                if self.config["classification_target"] == 'Mid_Process':
+                    loss = loss_mp_softmax
+                elif self.config["classification_target"] == 'Low_Process':
+                    loss = loss_lp_softmax
                 elif self.config["classification_target"] == 'Activity_windows':
-                    loss = loss_windows_softmax
-                elif self.config["classification_target"] == 'Attributes':
-                    loss = loss_attribute
-                elif self.config["classification_target"] == 'Attributes_windows':
-                    loss = loss_windows_attribute
-                elif self.config["classification_target"] == 'Statistics_activities':
-                    loss = loss_statistics_classes
+                    loss = loss_activities_softmax
                 else:
-                    loss = 0.16 * loss_softmax + 0.16 * loss_activity_softmax + 0.2 * loss_windows_softmax + \
-                           0.16 * loss_attribute + 0.16 * loss_windows_attribute + 0.16 * loss_statistics_classes
+                    loss = 0.16 * loss_mp_softmax + 0.16 * loss_lp_softmax + 0.2 * loss_activities_softmax
                 #else:
                 #    loss = loss_softmax
                 loss.backward()
@@ -1032,15 +918,15 @@ class Network_User(object):
 
                     # Metrics for training for keeping the same number of metrics for val and training
                     # Metrics return a dict with the metrics.
-                    metrics_obj.metric(targets=train_batch_l_p_class,
-                                       predictions=class_predictions,
-                                       classification_target="Process")
+                    metrics_obj.metric(targets=train_batch_l_mp_class,
+                                       predictions=mp_predictions,
+                                       classification_target="Mid_Process")
+                    metrics_obj.metric(targets=train_batch_l_lp_class,
+                                       predictions=lp_predictions,
+                                       classification_target="Low_Process")
                     metrics_obj.metric(targets=train_batch_l_overall_a_class,
-                                       predictions=activity_predictions,
-                                       classification_target="Activity")
-                    metrics_obj.metric(targets=train_batch_l_a_class,
-                                       predictions=window_predictions,
-                                       classification_target="Activity_windows")
+                                       predictions=activities_predictions,
+                                       classification_target="Activities")
 
                     results_train = metrics_obj.return_results()
 
@@ -1176,15 +1062,15 @@ class Network_User(object):
                 # Computing metrics for current training batch
                 if (itera) % self.config["train_show"] == 0:
                     # Metrics for training
-                    metrics_obj.metric(targets=train_batch_l_p_class,
-                                       predictions=class_predictions,
-                                       classification_target="Process")
+                    metrics_obj.metric(targets=train_batch_l_mp_class,
+                                       predictions=mp_predictions,
+                                       classification_target="Mid_Process")
                     metrics_obj.metric(targets=train_batch_l_overall_a_class,
-                                       predictions=activity_predictions,
-                                       classification_target="Activity")
-                    metrics_obj.metric(targets=train_batch_l_a_class,
-                                       predictions=window_predictions,
-                                       classification_target="Activity_windows")
+                                       predictions=lp_predictions,
+                                       classification_target="Low_Process")
+                    metrics_obj.metric(targets=train_batch_l_overall_a_class,
+                                       predictions=activities_predictions,
+                                       classification_target="Activities")
 
                     results_train = metrics_obj.return_results()
 
@@ -1194,16 +1080,13 @@ class Network_User(object):
                             "Loss_Train_inTrain_{}".format(ea_itera), scalar_value=loss_train, global_step=itera
                         )
                         self.exp.add_scalar(
-                            "Loss_process_Train_inTrain_{}".format(ea_itera), scalar_value=loss_softmax, global_step=itera
+                            "Loss_M_process_Train_inTrain_{}".format(ea_itera), scalar_value=loss, global_step=itera
                         )
                         self.exp.add_scalar(
-                            "Loss_activity_Train_inTrain_{}".format(ea_itera), scalar_value=loss_activity_softmax, global_step=itera
+                            "Loss_L_process_Train_inTrain_{}".format(ea_itera), scalar_value=loss, global_step=itera
                         )
                         self.exp.add_scalar(
-                            "Loss_activity_windows_Train_inTrain_{}".format(ea_itera), scalar_value=loss_windows_softmax, global_step=itera
-                        )
-                        self.exp.add_scalar(
-                            "Loss_attrs_Train_inTrain_{}".format(ea_itera), scalar_value=loss_attribute, global_step=itera
+                            "Loss_activity_Train_inTrain_{}".format(ea_itera), scalar_value=loss, global_step=itera
                         )
                         self.exp.add_scalar(
                             "Acc_Train_inTrain_{}".format(ea_itera),
@@ -1252,30 +1135,30 @@ class Network_User(object):
                         )
                     )#loss_softmax + loss_windows_softmax + loss_attribute
                     logging.info("        Network_User:    Train:    loss {}, "
-                                 "loss process {}, loss activities {}, "
-                                 "loss attrs {}".format(loss, loss_softmax, loss_windows_softmax, loss_attribute))
+                                 "loss_mp_softmax {}, loss_lp_softmax {}, "
+                                 "loss_activities_softmax {}".format(loss, loss_mp_softmax, loss_lp_softmax, loss_activities_softmax))
                     logging.info(
                         "        Network_User:    Train:        Process acc {}, "
                         "f1_weighted {}, f1_mean {}".format(
-                            results_train["Process"]["acc"],
-                            results_train["Process"]["f1_weighted"],
-                            results_train["Process"]["f1_mean"],
+                            results_train["Mid_Process"]["acc"],
+                            results_train["Mid_Process"]["f1_weighted"],
+                            results_train["Mid_Process"]["f1_mean"],
                         )
                     )
                     logging.info(
                         "        Network_User:    Train:        Activity acc {}, "
                         "f1_weighted {}, f1_mean {}".format(
-                            results_train["Activity"]["acc"],
-                            results_train["Activity"]["f1_weighted"],
-                            results_train["Activity"]["f1_mean"],
+                            results_train["Low_Process"]["acc"],
+                            results_train["Low_Process"]["f1_weighted"],
+                            results_train["Low_Process"]["f1_mean"],
                         )
                     )
                     logging.info(
                         "        Network_User:    Train:        Activitiy Windows acc {}, "
                         "f1_weighted {}, f1_mean {}".format(
-                            results_train["Activity_windows"]["acc"],
-                            results_train["Activity_windows"]["f1_weighted"],
-                            results_train["Activity_windows"]["f1_mean"],
+                            results_train["Activities"]["acc"],
+                            results_train["Activities"]["f1_weighted"],
+                            results_train["Activities"]["f1_mean"],
                         )
                     )
                     logging.info(
@@ -1287,66 +1170,20 @@ class Network_User(object):
                     )
                     logging.info(
                         "        Network_User:    Train:    "
-                        "Predictions Process {}, Class {}, Process Target {}".format(network_obj.softmax(class_predictions)[0],
-                                                                                     torch.argmax(class_predictions[0]),
-                                                                                     train_batch_l_p_class[0]
+                        "Predictions Process {}, Class {}, Process Target {}".format(network_obj.softmax(mp_predictions)[0],
+                                                                                     torch.argmax(mp_predictions[0]),
+                                                                                     train_batch_l_mp_class[0]
                         )
                     )
                     logging.info(
                         "        Network_User:    Train:    "
-                        "Predictions Activity_OverAll {}, Class {}, over all activities Target {}".format(network_obj.softmax(activity_predictions)[0],
+                        "Predictions Activity_OverAll {}, Class {}, over all activities Target {}".format(network_obj.softmax(lp_predictions)[0],
                                                                                        torch.argmax(
-                                                                                           activity_predictions[0]),
+                                                                                           lp_predictions[0]),
                                                                                        train_batch_l_overall_a_class[0]
                         )
                     )
 
-                    #print("side windows", train_batch_l_a_class.size())
-                    statistics_classes = train_batch_l_a_class.reshape(batch_windows_classes, windows_windows_classes)
-                    #print("side windows reshaped", statistics_classes.size())
-                    statistics_classes = torch.bincount(statistics_classes[0], minlength=self.config["num_classes"])
-                    #print("statistics side windows reshaped", statistics_classes.size())
-
-                    logging.info(
-                        "        Network_User:    Train:    epoch {}/{} batch {}/{} itera {} "
-                        "Statistics per 100 samples labels {}".format(
-                            e, self.config["epochs"], b, len(dataLoader_train), itera, statistics_classes
-                        )
-                    )
-                    logging.info(
-                        "        Network_User:    Train:    "
-                        "Predictions Activity_Windows {}, Class {}, Activity_Windows Target {}".format(network_obj.softmax(window_predictions)[0],
-                                                                                       torch.argmax(
-                                                                                           window_predictions[
-                                                                                               0]),
-                                                                                       train_batch_l_a_class[0]
-                        )
-                    )
-                    #print("side windows", window_predictions.size())
-                    window_predictions = window_predictions.reshape(batch_windows_classes, windows_windows_classes, window_predictions.size()[1])
-                    #print("side windows reshaped", window_predictions.size())
-                    window_predictions = torch.argmax(window_predictions[0], axis=1)
-                    #print("side windows reshaped", window_predictions.size())
-                    statistics_classes = torch.bincount(window_predictions, minlength=self.config["num_classes"])
-                    #print("statistics side windows reshaped", statistics_classes.size())
-                    logging.info(
-                        "        Network_User:    Train:    epoch {}/{} batch {}/{} itera {} "
-                        "statistics per 100 samples predictions {}".format(
-                            e, self.config["epochs"], b, len(dataLoader_train), itera, statistics_classes
-                        )
-                    )
-                    logging.info(
-                        "        Network_User:    Train:    epoch {}/{} batch {}/{} itera {} "
-                        "statistics per 100 samples predictions {}".format(
-                            e, self.config["epochs"], b, len(dataLoader_train), itera, statistics_prediction_classes[0]
-                        )
-                    )
-                    logging.info(
-                        "        Network_User:    Train:    "
-                        "Predictions {} \n  Attrs {}, Targets {}".format(network_obj.softmax(class_predictions)[0],
-                                                                         attrs_overall_predictions[0], train_batch_l_p_class[0]
-                        )
-                    )
                     logging.info("\n\n--------------------------")
 
 
@@ -1430,10 +1267,7 @@ class Network_User(object):
         logging.info("        Network_User:    Val:    setting criterion optimizer Attribute")
         criterion = [nn.CrossEntropyLoss(),
                      nn.CrossEntropyLoss(),
-                     nn.CrossEntropyLoss(),
-                     nn.BCELoss(),
-                     nn.BCELoss(),
-                     nn.BCELoss()]
+                     nn.CrossEntropyLoss()]
 
 
         # One doesnt need the gradients
@@ -1441,57 +1275,29 @@ class Network_User(object):
             for v, harwindow_batched_val in enumerate(dataLoader_val):
                 # Selecting batch
                 test_batch_v = harwindow_batched_val["data"]
-                test_batch_l_p_class = torch.argmax(harwindow_batched_val["labels"][:, :, range_scores['Process']], axis=2)
-                test_batch_l_p_class = test_batch_l_p_class.mode(dim=1).values
-                test_batch_l_p_class = test_batch_l_p_class.reshape(-1)
+                test_batch_l_mp_class = torch.argmax(harwindow_batched_val["labels"][:, :, range_scores['Mid_Process']], axis=2)
+                test_batch_l_mp_class = test_batch_l_mp_class.mode(dim=1).values
+                test_batch_l_mp_class = test_batch_l_mp_class.reshape(-1)
+
+                test_batch_l_lp_class = torch.argmax(harwindow_batched_val["labels"][:, :, range_scores['Low_Process']], axis=2)
+                test_batch_l_lp_class = test_batch_l_lp_class.mode(dim=1).values
+                test_batch_l_lp_class = test_batch_l_lp_class.reshape(-1)
 
                 test_batch_l_overall_a_class = torch.argmax(harwindow_batched_val["labels"][:, :, range_scores['Activity']], axis=2)
                 test_batch_l_overall_a_class = test_batch_l_overall_a_class.mode(dim=1).values
                 test_batch_l_overall_a_class = test_batch_l_overall_a_class.reshape(-1)
 
-                test_batch_l_overall_attr_class = harwindow_batched_val["labels"][:, :, range_scores['attrs']]
-                test_batch_l_overall_attr_class = torch.sum(test_batch_l_overall_attr_class, axis=1) / 1000
-
-                test_batch_l_a_class = harwindow_batched_val["labels"][:, :, range_scores['Activity']]
-                test_batch_l_a_class = test_batch_l_a_class.permute(0, 2, 1)  # input [B, 1, C, T]
-                test_batch_l_a_class = test_batch_l_a_class.unfold(dimension=2, size=100, step=10)  # input [B, 1, C, W, T]
-                test_batch_l_a_class = test_batch_l_a_class.permute(0, 2, 3, 1)  # input [B, W, 1, T, C]
-                batch_windows_classes = test_batch_l_a_class.shape[0]
-                windows_windows_classes = test_batch_l_a_class.shape[1]
-                test_batch_l_a_class = test_batch_l_a_class.reshape(-1, test_batch_l_a_class.size()[2], test_batch_l_a_class.size()[3])
-                test_batch_l_a_class = torch.argmax(test_batch_l_a_class, axis=2)
-                test_batch_l_a_class = test_batch_l_a_class.mode(dim=1).values
-                test_batch_l_a_class = test_batch_l_a_class.reshape(-1)
-
-                test_batch_l_attrs_class = harwindow_batched_val["labels"][:, :, range_scores['attrs']]
-                test_batch_l_attrs_class = test_batch_l_attrs_class.permute(0, 2, 1)  # input [B, 1, C, T]
-                test_batch_l_attrs_class = test_batch_l_attrs_class.unfold(dimension=2, size=100, step=10)  # input [B, 1, C, W, T]
-                test_batch_l_attrs_class = test_batch_l_attrs_class.permute(0, 2, 3, 1)  # input [B, W, 1, T, C]
-                test_batch_l_attrs_class = test_batch_l_attrs_class.reshape(-1, test_batch_l_attrs_class.size()[2], test_batch_l_attrs_class.size()[3])
-                test_batch_l_attr = torch.sum(test_batch_l_attrs_class, axis=1) / 100
-
-                statistics_windows_classes = test_batch_l_a_class.reshape(batch_windows_classes, windows_windows_classes)
-                statistics_classes = torch.zeros((batch_windows_classes, self.config["num_classes"]))
-                #print("side windows reshaped", statistics_windows_classes.size())
-                for b_statistic in range(batch_windows_classes):
-                    statistics_classes[b_statistic] = torch.bincount(statistics_windows_classes[b_statistic],
-                                                                     minlength=self.config["num_classes"]) / windows_windows_classes
-                #print("statistics side windows reshaped", statistics_classes.size())
-                #print("Statistics side windows labels", statistics_classes)
-
                 # Creating torch tensors
                 test_batch_v = test_batch_v.to(self.device, dtype=torch.float)
-                test_batch_l_p_class = test_batch_l_p_class.to(self.device, dtype=torch.long)
+                test_batch_l_mp_class = test_batch_l_mp_class.to(
+                    self.device, dtype=torch.long
+                )
+                test_batch_l_lp_class = test_batch_l_lp_class.to(
+                    self.device, dtype=torch.long
+                )
                 test_batch_l_overall_a_class = test_batch_l_overall_a_class.to(
                     self.device, dtype=torch.long
                 )
-                test_batch_l_overall_attr_class = test_batch_l_overall_attr_class.to(
-                    self.device, dtype=torch.float
-                )  # labels for binerycrossentropy needs float type
-                test_batch_l_a_class = test_batch_l_a_class.to(self.device, dtype=torch.long)
-                test_batch_l_attr = test_batch_l_attr.to(
-                    self.device, dtype=torch.float
-                )  # labels for binerycrossentropy needs float type
 
                 if self.config["frequency"] in ["75"]:
                     idx_frequency = np.arange(0, 100, 1)
@@ -1505,106 +1311,62 @@ class Network_User(object):
 
 
                 # Forward Pass
-                overall_predictions, window_predictions, windows_attrs = network_obj(test_batch_v)
-                class_predictions = overall_predictions[:, range_scores["Process"]]
-                activity_predictions = overall_predictions[:, range_scores["Activity"]]
-                attrs_overall_predictions = overall_predictions[:, range_scores["attrs"]]
-
-                statistics_window_predictions = window_predictions.reshape(batch_windows_classes, windows_windows_classes,
-                                                                window_predictions.size()[1])
-                statistics_window_predictions = torch.argmax(statistics_window_predictions, axis=2)
-                statistics_prediction_classes = torch.zeros((batch_windows_classes, self.config["num_classes"]))
-                for b_statistic in range(batch_windows_classes):
-                    statistics_prediction_classes[b_statistic] = torch.bincount(statistics_window_predictions[b_statistic],
-                                                                                minlength=self.config["num_classes"]) / windows_windows_classes
+                overall_predictions = network_obj(test_batch_v)
+                mp_predictions = overall_predictions[:, range_scores["Mid_Process"]]
+                lp_predictions = overall_predictions[:, range_scores["Low_Process"]]
+                activities_predictions = overall_predictions[:, range_scores["Activity"]]
 
                 # loss process
-                loss_softmax = criterion[0](class_predictions, test_batch_l_p_class)
+                loss_mp_softmax = criterion[0](mp_predictions, test_batch_l_mp_class)
 
                 #activity global
                 #print("loss 3")
-                loss_activity_softmax = criterion[1](activity_predictions, test_batch_l_overall_a_class)
+                loss_lp_softmax = criterion[0](lp_predictions, test_batch_l_lp_class)
 
                 # activity windows
                 #print("loss 4")
-                loss_windows_softmax = criterion[0](window_predictions, test_batch_l_a_class)
-
-                # attributes overall
-                #print("loss 5")
-                loss_attribute = criterion[3](attrs_overall_predictions, test_batch_l_overall_attr_class)
-
-                # attributes windows
-                #print("loss 6")
-                loss_windows_attribute = criterion[4](windows_attrs, test_batch_l_attr)
-
-                # statistics windows
-                loss_statistics_classes = criterion[5](statistics_prediction_classes, statistics_classes)
+                loss_activities_softmax = criterion[0](activities_predictions, test_batch_l_overall_a_class)
 
                 if self.config["classification_target"] == 'Process':
-                    loss = loss_softmax
+                    loss = loss_mp_softmax
                 elif self.config["classification_target"] == 'Activity':
-                    loss = loss_activity_softmax
+                    loss = loss_lp_softmax
                 elif self.config["classification_target"] == 'Activity_windows':
-                    loss = loss_windows_softmax
-                elif self.config["classification_target"] == 'Attributes':
-                    loss = loss_attribute
-                elif self.config["classification_target"] == 'Attributes_windows':
-                    loss = loss_windows_attribute
-                elif self.config["classification_target"] == 'Statistics_activities':
-                    loss = loss_statistics_classes
+                    loss = loss_activities_softmax
                 else:
-                    loss = 0.16 * loss_softmax + 0.16 * loss_activity_softmax + 0.2 * loss_windows_softmax + \
-                           0.16 * loss_attribute + 0.16 * loss_windows_attribute + 0.16 * loss_statistics_classes
+                    loss = 0.16 * loss_mp_softmax + 0.16 * loss_lp_softmax + 0.2 * loss_activities_softmax
 
                 loss_val += loss.item()
 
                 # Concatenating all of the batches for computing the metrics
                 # As creating an empty tensor and sending to device and then concatenating isnt working
                 if v == 0:
-                    if self.config["classification_target"] == 'Process':
-                        predictions_val = class_predictions
-                        test_labels = test_batch_l_p_class
-                    elif self.config["classification_target"] == 'Activity':
-                        predictions_val = activity_predictions
-                        test_labels = test_batch_l_overall_a_class
+                    if self.config["classification_target"] == 'Mid_Process':
+                        predictions_val = mp_predictions
+                        test_labels = test_batch_l_mp_class
+                    elif self.config["classification_target"] == 'Low_Process':
+                        predictions_val = lp_predictions
+                        test_labels = test_batch_l_lp_class
                     elif self.config["classification_target"] == 'Activity_windows':
-                        predictions_val = window_predictions
-                        test_labels = test_batch_l_a_class
-                    elif self.config["classification_target"] == 'Attributes':
-                        predictions_val = window_predictions
-                        test_labels = test_batch_l_a_class
-                    elif self.config["classification_target"] == 'Attributes_windows':
-                        predictions_val = window_predictions
-                        test_labels = test_batch_l_a_class
-                    elif self.config["classification_target"] == 'Statistics_activities':
-                        predictions_val = window_predictions
-                        test_labels = test_batch_l_a_class
+                        predictions_val = activities_predictions
+                        test_labels = test_batch_l_overall_a_class
                     else:
-                        predictions_val = window_predictions
-                        test_labels = test_batch_l_a_class
+                        predictions_val = mp_predictions
+                        test_labels = test_batch_l_mp_class
 
                 else:
-                    if self.config["classification_target"] == 'Process':
-                        predictions_val = torch.cat((predictions_val, class_predictions), dim=0)
-                        test_labels = torch.cat((test_labels, test_batch_l_p_class), dim=0)
-                    elif self.config["classification_target"] == 'Activity':
-                        predictions_val = torch.cat((predictions_val, activity_predictions), dim=0)
-                        test_labels = torch.cat((test_labels, test_batch_l_overall_a_class), dim=0)
+                    if self.config["classification_target"] == 'Mid_Process':
+                        predictions_val = torch.cat((predictions_val, mp_predictions), dim=0)
+                        test_labels = torch.cat((test_labels, test_batch_l_mp_class), dim=0)
+                    elif self.config["classification_target"] == 'Low_Process':
+                        predictions_val = torch.cat((predictions_val, lp_predictions), dim=0)
+                        test_labels = torch.cat((test_labels, test_batch_l_lp_class), dim=0)
                     elif self.config["classification_target"] == 'Activity_windows':
-                        predictions_val = torch.cat((predictions_val, window_predictions), dim=0)
-                        test_labels = torch.cat((test_labels, test_batch_l_a_class), dim=0)
-                    elif self.config["classification_target"] == 'Attributes':
-                        predictions_val = torch.cat((predictions_val, window_predictions), dim=0)
-                        test_labels = torch.cat((test_labels, test_batch_l_a_class), dim=0)
-                    elif self.config["classification_target"] == 'Attributes_windows':
-                        predictions_val = torch.cat((predictions_val, window_predictions), dim=0)
-                        test_labels = torch.cat((test_labels, test_batch_l_a_class), dim=0)
-                    elif self.config["classification_target"] == 'Statistics_activities':
-                        predictions_val = torch.cat((predictions_val, window_predictions), dim=0)
-                        test_labels = torch.cat((test_labels, test_batch_l_a_class), dim=0)
+                        predictions_val = torch.cat((predictions_val, activities_predictions), dim=0)
+                        test_labels = torch.cat((test_labels, test_batch_l_overall_a_class), dim=0)
                     else:
-                        predictions_val = torch.cat((predictions_val, window_predictions), dim=0)
-                        test_labels = torch.cat((test_labels, test_batch_l_a_class), dim=0)
+                        predictions_val = torch.cat((predictions_val, mp_predictions), dim=0)
+                        test_labels = torch.cat((test_labels, test_batch_l_mp_class), dim=0)
 
                 sys.stdout.write("\rValidating: Batch  {}/{}".format(v, len(dataLoader_val)))
                 sys.stdout.flush()
@@ -1616,13 +1378,10 @@ class Network_User(object):
 
         results_val = metrics_obj.return_results()
 
-        del test_batch_v, test_batch_l_a_class
-        del class_predictions, predictions_val
-        del test_labels, activity_predictions
-        del window_predictions, test_batch_l_overall_a_class
-        del test_batch_l_p_class, test_batch_l_overall_attr_class
-        del test_batch_l_attr, statistics_classes
-        del statistics_prediction_classes, windows_attrs
+        del test_batch_v, test_batch_l_mp_class
+        del mp_predictions, predictions_val
+        del test_labels, activities_predictions
+        del test_batch_l_lp_class, test_batch_l_overall_a_class
 
         torch.cuda.empty_cache()
 
@@ -1713,12 +1472,9 @@ class Network_User(object):
         # Setting loss, only for being measured. Network wont be trained
         logging.info("        Network_User:    Train:    setting criterion optimizer Softmax")
         logging.info("        Network_User:    Train:    setting criterion optimizer Attribute")
-        criterion_softmax = nn.CrossEntropyLoss()
-        criterion_activity_softmax = nn.CrossEntropyLoss()
-        criterion_windows_activity_softmax = nn.CrossEntropyLoss()
-        criterion_statistics_activity_attribute = nn.BCELoss()
-        criterion_attribute = nn.BCELoss()
-        criterion_windows_attribute_softmax = nn.BCELoss()
+        criterion_mp_softmax = nn.CrossEntropyLoss()
+        criterion_lp_softmax = nn.CrossEntropyLoss()
+        criterion_activities_softmax = nn.CrossEntropyLoss()
 
         loss_test = 0
 
@@ -1732,56 +1488,29 @@ class Network_User(object):
             for v, harwindow_batched_test in enumerate(dataLoader_test):
                 # Selecting batch
                 test_batch_v = harwindow_batched_test["data"]
-                test_batch_l_p_class = torch.argmax(harwindow_batched_test["labels"][:, :, range_scores['Process']], axis=2)
-                test_batch_l_p_class = test_batch_l_p_class.mode(dim=1).values
-                test_batch_l_p_class = test_batch_l_p_class.reshape(-1)
+                test_batch_l_mp_class = torch.argmax(harwindows_test["labels"][:, :, range_scores['Mid_Process']], axis=2)
+                test_batch_l_mp_class = test_batch_l_mp_class.mode(dim=1).values
+                test_batch_l_mp_class = test_batch_l_mp_class.reshape(-1)
 
-                test_batch_l_overall_a_class = torch.argmax(harwindow_batched_test["labels"][:, :, range_scores['Activity']], axis=2)
+                test_batch_l_lp_class = torch.argmax(harwindows_test["labels"][:, :, range_scores['Low_Process']], axis=2)
+                test_batch_l_lp_class = test_batch_l_lp_class.mode(dim=1).values
+                test_batch_l_lp_class = test_batch_l_lp_class.reshape(-1)
+
+                test_batch_l_overall_a_class = torch.argmax(harwindows_test["labels"][:, :, range_scores['Activity']], axis=2)
                 test_batch_l_overall_a_class = test_batch_l_overall_a_class.mode(dim=1).values
                 test_batch_l_overall_a_class = test_batch_l_overall_a_class.reshape(-1)
 
-                test_batch_l_overall_attr_class = harwindow_batched_test["labels"][:, :, range_scores['attrs']]
-                test_batch_l_overall_attr_class = torch.sum(test_batch_l_overall_attr_class, axis=1) / 1000
-
-                test_batch_l_a_class = harwindow_batched_test["labels"][:, :, range_scores['Activity']]
-                test_batch_l_a_class = test_batch_l_a_class.permute(0, 2, 1)  # input [B, 1, C, T]
-                test_batch_l_a_class = test_batch_l_a_class.unfold(dimension=2, size=100, step=10)  # input [B, 1, C, W, T]
-                test_batch_l_a_class = test_batch_l_a_class.permute(0, 2, 3, 1)  # input [B, W, 1, T, C]
-                batch_windows_classes = test_batch_l_a_class.shape[0]
-                windows_windows_classes = test_batch_l_a_class.shape[1]
-                test_batch_l_a_class = test_batch_l_a_class.reshape(-1, test_batch_l_a_class.size()[2], test_batch_l_a_class.size()[3])
-                test_batch_l_a_class = torch.argmax(test_batch_l_a_class, axis=2)
-                test_batch_l_a_class = test_batch_l_a_class.mode(dim=1).values
-                test_batch_l_a_class = test_batch_l_a_class.reshape(-1)
-
-                test_batch_l_attrs_class = harwindow_batched_test["labels"][:, :, range_scores['attrs']]
-                test_batch_l_attrs_class = test_batch_l_attrs_class.permute(0, 2, 1)  # input [B, 1, C, T]
-                test_batch_l_attrs_class = test_batch_l_attrs_class.unfold(dimension=2, size=100, step=10)  # input [B, 1, C, W, T]
-                test_batch_l_attrs_class = test_batch_l_attrs_class.permute(0, 2, 3, 1)  # input [B, W, 1, T, C]
-                test_batch_l_attrs_class = test_batch_l_attrs_class.reshape(-1, test_batch_l_attrs_class.size()[2], test_batch_l_attrs_class.size()[3])
-                test_batch_l_attr = torch.sum(test_batch_l_attrs_class, axis=1) / 100
-
-                statistics_windows_classes = test_batch_l_a_class.reshape(batch_windows_classes, windows_windows_classes)
-                statistics_classes = torch.zeros((batch_windows_classes, self.config["num_classes"]))
-                #print("side windows reshaped", statistics_windows_classes.size())
-                for b_statistic in range(batch_windows_classes):
-                    statistics_classes[b_statistic] = torch.bincount(statistics_windows_classes[b_statistic],
-                                                                     minlength=self.config["num_classes"]) / windows_windows_classes
-
                 # Creating torch tensors
                 test_batch_v = test_batch_v.to(self.device, dtype=torch.float)
-                test_batch_l_p_class = test_batch_l_p_class.to(self.device, dtype=torch.long)
+                test_batch_l_mp_class = test_batch_l_mp_class.to(
+                    self.device, dtype=torch.long
+                )
+                test_batch_l_lp_class = test_batch_l_lp_class.to(
+                    self.device, dtype=torch.long
+                )
                 test_batch_l_overall_a_class = test_batch_l_overall_a_class.to(
                     self.device, dtype=torch.long
                 )
-                test_batch_l_overall_attr_class = test_batch_l_overall_attr_class.to(
-                    self.device, dtype=torch.float
-                )  # labels for binerycrossentropy needs float type
-                test_batch_l_a_class = test_batch_l_a_class.to(self.device, dtype=torch.long)
-                test_batch_l_attr = test_batch_l_attr.to(
-                    self.device, dtype=torch.float
-                )  # labels for binerycrossentropy needs float type
-
 
                 if self.config["frequency"] in ["75"]:
                     idx_frequency = np.arange(0, 100, 1)
@@ -1793,57 +1522,30 @@ class Network_User(object):
                     idx_frequency = np.arange(0, 100, 4)
                     test_batch_v = test_batch_v[:, :, idx_frequency, :]
                 # forward
-                overall_predictions, window_predictions, windows_attrs = network_obj(test_batch_v)
-                class_predictions = overall_predictions[:, range_scores["Process"]]
-                activity_predictions = overall_predictions[:, range_scores["Activity"]]
-                attrs_overall_predictions = overall_predictions[:, range_scores["attrs"]]
-
-                statistics_window_predictions = window_predictions.reshape(batch_windows_classes, windows_windows_classes,
-                                                                window_predictions.size()[1])
-                statistics_window_predictions = torch.argmax(statistics_window_predictions, axis=2)
-                statistics_prediction_classes = torch.zeros((batch_windows_classes, self.config["num_classes"]))
-                for b_statistic in range(batch_windows_classes):
-                    statistics_prediction_classes[b_statistic] = torch.bincount(statistics_window_predictions[b_statistic],
-                                                                                minlength=self.config["num_classes"]) / windows_windows_classes
-
+                overall_predictions = network_obj(test_batch_v)
+                mp_predictions = overall_predictions[:, range_scores["Mid_Process"]]
+                lp_predictions = overall_predictions[:, range_scores["Low_Process"]]
+                activities_predictions = overall_predictions[:, range_scores["Activity"]]
 
                 # loss process
-                loss_softmax = criterion_softmax(class_predictions, test_batch_l_p_class)
+                loss_mp_softmax = criterion_mp_softmax(mp_predictions, test_batch_l_mp_class)
 
                 #activity global
                 #print("loss 3")
-                loss_activity_softmax = criterion_activity_softmax(activity_predictions, test_batch_l_overall_a_class)
+                loss_lp_softmax = criterion_lp_softmax(lp_predictions, test_batch_l_lp_class)
 
                 # activity windows
                 #print("loss 4")
-                loss_windows_softmax = criterion_windows_activity_softmax(window_predictions, test_batch_l_a_class)
+                loss_activities_softmax = criterion_activities_softmax(activities_predictions, test_batch_l_overall_a_class)
 
-                # attributes overall
-                #print("loss 5")
-                loss_attribute = criterion_attribute(attrs_overall_predictions, test_batch_l_overall_attr_class)
-
-                # attributes windows
-                #print("loss 6")
-                loss_windows_attribute = criterion_windows_attribute_softmax(windows_attrs, test_batch_l_attr)
-
-                # statistics windows
-                loss_statistics_classes = criterion_statistics_activity_attribute(statistics_prediction_classes, statistics_classes)
-
-                if self.config["classification_target"] == 'Process':
-                    loss = loss_softmax
+                if self.config["classification_target"] == 'Mid_Process':
+                    loss = loss_mp_softmax
+                elif self.config["classification_target"] == 'Low_Process':
+                    loss = loss_lp_softmax
                 elif self.config["classification_target"] == 'Activity':
-                    loss = loss_activity_softmax
-                elif self.config["classification_target"] == 'Activity_windows':
-                    loss = loss_windows_softmax
-                elif self.config["classification_target"] == 'Attributes':
-                    loss = loss_attribute
-                elif self.config["classification_target"] == 'Attributes_windows':
-                    loss = loss_windows_attribute
-                elif self.config["classification_target"] == 'Statistics_activities':
-                    loss = loss_statistics_classes
+                    loss = loss_activities_softmax
                 else:
-                    loss = 0.16 * loss_softmax + 0.16 * loss_activity_softmax + 0.2 * loss_windows_softmax + \
-                           0.16 * loss_attribute + 0.16 * loss_windows_attribute + 0.16 * loss_statistics_classes
+                    loss = 0.16 * loss_mp_softmax + 0.16 * loss_lp_softmax + 0.2 * loss_activities_softmax
                 loss_test = loss_test + loss.item()
 
                 #print("---------------\n", class_predictions[0, :8])
@@ -1852,27 +1554,18 @@ class Network_User(object):
                 # and not only for a batch
                 # As creating an empty tensor and sending to device and then concatenating isnt working
                 if v == 0:
-                    if self.config["classification_target"] == 'Process':
-                        predictions_test = class_predictions
-                        test_labels = test_batch_l_p_class
+                    if self.config["classification_target"] == 'Mid_Process':
+                        predictions_test = mp_predictions
+                        test_labels = test_batch_l_mp_class
+                    elif self.config["classification_target"] == 'Low_Process':
+                        predictions_test = lp_predictions
+                        test_labels = test_batch_l_lp_class
                     elif self.config["classification_target"] == 'Activity':
-                        predictions_test = activity_predictions
+                        predictions_test = activities_predictions
                         test_labels = test_batch_l_overall_a_class
-                    elif self.config["classification_target"] == 'Activity_windows':
-                        predictions_test = window_predictions
-                        test_labels = test_batch_l_a_class
-                    elif self.config["classification_target"] == 'Attributes':
-                        predictions_test = window_predictions
-                        test_labels = test_batch_l_a_class
-                    elif self.config["classification_target"] == 'Attributes_windows':
-                        predictions_test = window_predictions
-                        test_labels = test_batch_l_a_class
-                    elif self.config["classification_target"] == 'Statistics_activities':
-                        predictions_test = window_predictions
-                        test_labels = test_batch_l_a_class
                     else:
-                        predictions_test = window_predictions
-                        test_labels = test_batch_l_a_class
+                        predictions_test = mp_predictions
+                        test_labels = test_batch_l_mp_class
 
                     test_file_labels = harwindow_batched_test["label_file"]
                     test_file_labels = test_file_labels.reshape(-1)
@@ -1880,27 +1573,18 @@ class Network_User(object):
                 else:
 
                     if self.config["classification_target"] == 'Process':
-                        predictions_test = torch.cat((predictions_test, class_predictions), dim=0)
-                        test_labels = torch.cat((test_labels, test_batch_l_p_class), dim=0)
+                        predictions_test = torch.cat((predictions_test, mp_predictions), dim=0)
+                        test_labels = torch.cat((test_labels, test_batch_l_mp_class), dim=0)
                     elif self.config["classification_target"] == 'Activity':
-                        predictions_test = torch.cat((predictions_test, activity_predictions), dim=0)
-                        test_labels = torch.cat((test_labels, test_batch_l_overall_a_class), dim=0)
+                        predictions_test = torch.cat((predictions_test, lp_predictions), dim=0)
+                        test_labels = torch.cat((test_labels, test_batch_l_lp_class), dim=0)
                     elif self.config["classification_target"] == 'Activity_windows':
-                        predictions_test = torch.cat((predictions_test, window_predictions), dim=0)
-                        test_labels = torch.cat((test_labels, test_batch_l_a_class), dim=0)
-                    elif self.config["classification_target"] == 'Attributes':
-                        predictions_test = torch.cat((predictions_test, window_predictions), dim=0)
-                        test_labels = torch.cat((test_labels, test_batch_l_a_class), dim=0)
-                    elif self.config["classification_target"] == 'Attributes_windows':
-                        predictions_test = torch.cat((predictions_test, window_predictions), dim=0)
-                        test_labels = torch.cat((test_labels, test_batch_l_a_class), dim=0)
-                    elif self.config["classification_target"] == 'Statistics_activities':
-                        predictions_test = torch.cat((predictions_test, window_predictions), dim=0)
-                        test_labels = torch.cat((test_labels, test_batch_l_a_class), dim=0)
+                        predictions_test = torch.cat((predictions_test, activities_predictions), dim=0)
+                        test_labels = torch.cat((test_labels, test_batch_l_overall_a_class), dim=0)
                     else:
-                        predictions_test = torch.cat((predictions_test, window_predictions), dim=0)
+                        predictions_test = torch.cat((predictions_test, mp_predictions), dim=0)
                         #predictions_test_attrs = torch.cat((predictions_test_attrs, attrs_overall_predictions), dim=0)
-                        test_labels = torch.cat((test_labels, test_batch_l_a_class), dim=0)
+                        test_labels = torch.cat((test_labels, test_batch_l_mp_class), dim=0)
                         #test_labels_attributes = torch.cat((test_labels_attributes, test_batch_l_attribute[:, 1:]), dim=0)
 
                     test_file_labels_batch = harwindow_batched_test["label_file"]
@@ -1978,8 +1662,9 @@ class Network_User(object):
         logging.info("        Network_User:        Testing:    percentage Pred \n{}\n".format(percentage_pred))
 
         del test_batch_v#, test_batch_l_clas, test_batch_l_attribute
-        del class_predictions, predictions_test
+        del mp_predictions, predictions_test
         del test_labels, predictions_labels
+        del lp_predictions, activities_predictions
         del network_obj
 
         torch.cuda.empty_cache()

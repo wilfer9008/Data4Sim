@@ -299,12 +299,9 @@ class Network(nn.Module):
 
         # Task for MotionMiners
         # self.ERGOKOM = nn.Linear(self.config['num_attributes'], self.config['num_classes']) #4
-        self.BASE_ACTIVITIES = nn.Linear(128, 5)  # 5
-        self.HANDLING_HEIGHTS = nn.Linear(128, 3)  # 8
-        self.WRAP = nn.Linear(128, 2)  # 10 +16
-        self.LARA = nn.Linear(128, 7)  # 23
-        self.PULL_PUSH = nn.Linear(128, 2)  # 25
-        self.WRITE = nn.Linear(128, 2)  # 27 + 46
+        self.process_mp = nn.Linear(128, 11)  # 5
+        self.process_lp = nn.Linear(128, 31)  # 8
+        self.activities = nn.Linear(128, 15)  # 27 + 46
 
         self.softmax = nn.Softmax(dim=1)
 
@@ -343,55 +340,34 @@ class Network(nn.Module):
         if self.training:
             attr = self.fc5(x_fc4)
             attr = self.sigmoid(attr)
-            LARA = self.LARA(x_fc4)
-            BASE_ACTIVITIES = self.BASE_ACTIVITIES(x_fc4)
-            HANDLING_HEIGHTS = self.HANDLING_HEIGHTS(x_fc4)
-            WRAP = self.WRAP(x_fc4)
-            ERGOKOM = attr[:, [3, 4, 5, 8, 9, 10]]
-            PULL_PUSH = self.PULL_PUSH(x_fc4)
-            WRITE = self.WRITE(x_fc4)
+            process_mp = self.process_mp(x_fc4)
+            process_lp = self.process_lp(x_fc4)
+            activities = self.activities(x_fc4)
 
         elif not self.training:
             attr = self.fc5(x_fc4)
             attr = self.sigmoid(attr)
 
-            LARA = self.LARA(x_fc4)
-            LARA = self.softmax(LARA)
+            process_mp = self.process_mp(x_fc4)
+            process_mp = self.softmax(process_mp)
 
-            BASE_ACTIVITIES = self.BASE_ACTIVITIES(x_fc4)
-            BASE_ACTIVITIES = self.softmax(BASE_ACTIVITIES)
+            process_lp = self.process_lp(x_fc4)
+            process_lp = self.softmax(process_lp)
 
             # HANDLING_HEIGHTS = attr[:, [3, 4, 5]]
-            HANDLING_HEIGHTS = self.HANDLING_HEIGHTS(x_fc4)
-            HANDLING_HEIGHTS = self.softmax(HANDLING_HEIGHTS)
-
-            # WRAP = attr[:, [3, 4, 5]]
-            WRAP = self.WRAP(x_fc4)
-            WRAP = self.softmax(WRAP)
-
-            ERGOKOM = attr[:, [3, 4, 5, 8, 9, 10]]
-
-            PULL_PUSH = self.PULL_PUSH(x_fc4)
-            PULL_PUSH = self.softmax(PULL_PUSH)
-
-            WRITE = self.WRITE(x_fc4)
-            WRITE = self.softmax(WRITE)
+            activities = self.activities(x_fc4)
+            activities = self.softmax(activities)
 
         x = torch.cat(
             (
-                BASE_ACTIVITIES,
-                HANDLING_HEIGHTS,
-                WRAP,
-                ERGOKOM,
-                LARA,
-                PULL_PUSH,
-                WRITE,
-                attr
+                process_mp,
+                process_lp,
+                activities
             ),
             1,
         )
 
-        return attr, x
+        return x
 
     def init_weights(self):
         """

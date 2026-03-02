@@ -358,6 +358,13 @@ class Preprocessing(object):
                             seq = np.reshape(X[f], newshape=(1, X.shape[1], X.shape[2]))
                             seq = np.require(seq, dtype=np.float16)
 
+                            obj = {
+                                "data": seq,
+                                "labels": Y[f],
+                                "identity": P,
+                                "label_file": counter_file_label,
+                            }
+
                             file_name = open(os.path.join(data_dir, "seq_{0:07}.pkl".format(counter_seq)), "wb")
 
                             pickle.dump(obj, file_name, protocol=pickle.HIGHEST_PROTOCOL)

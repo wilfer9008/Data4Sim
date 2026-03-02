@@ -27,7 +27,7 @@ class Metrics(object):
         logging.info("            Metrics: Constructor")
         self.config = config
         self.device = dev
-        self.mode = "Process"
+        self.mode = config["classification_target"]
         self.testing = testing
         # Here, you need to extract the attributes from the network.pt
         # self,attr= network["att_rep"]
@@ -44,7 +44,7 @@ class Metrics(object):
             self.atts = self.atts.type(dtype=torch.FloatTensor)
 
         self.results = {
-            "Process": {
+            "Mid_Process": {
                 "acc": 0,
                 "f1_weighted": 0,
                 "f1_mean": 0,
@@ -52,7 +52,7 @@ class Metrics(object):
                 "precision": 0,
                 "recall": 0,
             },
-            "Activity": {
+            "Low_Process": {
                 "acc": 0,
                 "f1_weighted": 0,
                 "f1_mean": 0,
@@ -60,31 +60,7 @@ class Metrics(object):
                 "precision": 0,
                 "recall": 0,
             },
-            "Activity_windows": {
-                "acc": 0,
-                "f1_weighted": 0,
-                "f1_mean": 0,
-                "predicted_classes": 0,
-                "precision": 0,
-                "recall": 0,
-            },
-            "Attributes": {
-                "acc": 0,
-                "f1_weighted": 0,
-                "f1_mean": 0,
-                "predicted_classes": 0,
-                "precision": 0,
-                "recall": 0,
-            },
-            "Attributes_windows": {
-                "acc": 0,
-                "f1_weighted": 0,
-                "f1_mean": 0,
-                "predicted_classes": 0,
-                "precision": 0,
-                "recall": 0,
-            },
-            "Statistics_activities": {
+            "Activities": {
                 "acc": 0,
                 "f1_weighted": 0,
                 "f1_mean": 0,
@@ -125,8 +101,8 @@ class Metrics(object):
         @return recall: torch array with recall of each class
         """
 
-        if self.mode == "Process":
-            nc = 8
+        if self.mode == "Mid_Process":
+            nc = 11
         else:
             nc = self.config["num_classes"]
 
@@ -222,12 +198,12 @@ class Metrics(object):
         @return F1_mean: F1 mean
         """
 
-        if self.mode == "Process":
-            nc = 8
+        if self.mode == "Mid_Process":
+            nc = 11
         else:
             nc = self.config["num_classes"]
 
-        if self.mode in ['Process', 'Activity', 'Activity_windows', 'Attributes', 'Attributes_windows']:
+        if self.mode in ['Mid_Process', 'Low_Process', 'Activities']:
             # Predictions
             if self.config["output"] == "softmax":
                 if attrs_prediction_on:
@@ -258,7 +234,7 @@ class Metrics(object):
         if self.config["output"] == "softmax":
             if attrs_prediction_on:
                 for c in range(nc):
-                    if self.mode in ['Process', 'Activity', 'Activity_windows', 'Attributes', 'Attributes_windows']:
+                    if self.mode in ['Mid_Process', 'Low_Process', 'Activity']:
                         proportions[c] = torch.sum(targets[:, 0] == c).item() / float(targets[:, 0].size()[0])
                     elif self.mode == "segmentation":
                         proportions[c] = torch.sum(targets == c).item() / float(targets.size()[0])
@@ -267,7 +243,7 @@ class Metrics(object):
                     proportions[c] = torch.sum(targets == c).item() / float(targets.size()[0])
         elif self.config["output"] == "attribute":
             for c in range(nc):
-                if self.mode in ['Process', 'Activity', 'Activity_windows', 'Attributes', 'Attributes_windows']:
+                if self.mode in ['Mid_Process', 'Low_Process', 'Activity']:
                     proportions[c] = torch.sum(targets[:, 0] == c).item() / float(targets[:, 0].size()[0])
                 elif self.mode == "segmentation":
                     proportions[c] = torch.sum(targets == c).item() / float(targets.size()[0])
@@ -318,7 +294,7 @@ class Metrics(object):
         """
 
         # Accuracy
-        if self.mode in ['Process', 'Activity', 'Activity_windows', 'Attributes', 'Attributes_windows']:
+        if self.mode in ['Mid_Process', 'Low_Process', 'Activities']:
             if self.config["output"] == "softmax":
                 if attrs_prediction_on:
                     # Classes from the distances to the attribute representation
@@ -512,7 +488,7 @@ class Metrics(object):
     ###################  metric  ######################
     ##################################################
 
-    def metric(self, targets, predictions, attrs_prediction_on=False, classification_target="Process"):
+    def metric(self, targets, predictions, attrs_prediction_on=False, classification_target="Mid_Process"):
         self.mode = classification_target
         # logging.info('        Network_User:    Metrics')
         #if attrs_prediction_on==False:

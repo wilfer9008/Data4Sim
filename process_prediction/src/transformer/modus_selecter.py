@@ -17,7 +17,7 @@ from xml.dom import minidom
 
 import numpy as np
 
-from network_user_proglove import Network_User
+from network_user import Network_User
 
 # from sacred import Experiment
 
