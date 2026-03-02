@@ -103,7 +103,5 @@ if __name__ == "__main__":
     experiment = Configuration()
     experiment.set_config("../../configs/")
     experiment.run_experiment("datasets_process")
-
     #"/mnt/data/femo/Documednts/CAR/Segmented_windows/mm_car/",
-
     print("Done")
