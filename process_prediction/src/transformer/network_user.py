@@ -21,7 +21,7 @@ from torch.utils.data import DataLoader
 
 from HARWindows import HARWindows
 from metrics import Metrics
-from tcnn_imu import Network
+from transformer import Network
 #from freezing_network_sections import Freezing
 
 # from sacred import Experiment

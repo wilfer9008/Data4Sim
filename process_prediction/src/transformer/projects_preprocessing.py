@@ -478,6 +478,7 @@ class Preprocessing(object):
 
 if __name__ == "__main__":
     path = "/home/fernando/Documents/Repositories/checkouts/Data4Sim/process_prediction/experiments/"
+    path = "/home/mpidev/femo/Documents/Repositories/checkouts/Data4Sim/Data4Sim/process_prediction/experiments/"
 
     preprocessing = Preprocessing(path)
     preprocessing.create_dataset()
