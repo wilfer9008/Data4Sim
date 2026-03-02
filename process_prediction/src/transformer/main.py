@@ -33,7 +33,7 @@ class Configuration(object):
 
     def set_config(self, path):
 
-        f = open(path + "datasets.json")
+        f = open(path + "config.json")
         self.config = json.load(f)
         f.close()
 
@@ -101,8 +101,8 @@ if __name__ == "__main__":
     print(":Python Platform {}".format(platform.python_version()))
 
     experiment = Configuration()
-    experiment.set_config("../configs/")
-    experiment.run_experiment("proglove_fall_2025")
+    experiment.set_config("../../configs/")
+    experiment.run_experiment("datasets_process")
 
     #"/mnt/data/femo/Documednts/CAR/Segmented_windows/mm_car/",
 
