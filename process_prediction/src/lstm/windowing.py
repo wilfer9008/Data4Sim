@@ -6,11 +6,72 @@ from typing import Dict, List, Tuple, Optional
 import numpy as np
 import pandas as pd
 
+import pickle
+import re
+
 # PAD_TOKEN = "<PAD>"
 # UNK_TOKEN = "<UNK>"
 # UNK_LABEL = "<UNK_LABEL>"
 
+def load_subject_feature_vectors(features_root: str, subject: str, feature_key: str = "features") -> np.ndarray:
+    class _CompatUnpickler(pickle.Unpickler):
+        def find_class(self, module, name):
+            if module.startswith("numpy._core"):
+                module = module.replace("numpy._core", "numpy.core", 1)
+            return super().find_class(module, name)
 
+    root = Path(features_root)
+    print(root)
+
+    if (root / "deep_features").exists():
+        root = root / "deep_features"
+
+    subject_dirs = sorted(d for d in root.glob(f"*_{subject}_*") if d.is_dir())
+    if not subject_dirs:
+        raise FileNotFoundError(f"No folder found for subject={subject} under:\n  {root}")
+    folder = subject_dirs[0]
+
+    # ORDERED by the number in seq_XXXXXXX.pkl
+    seq_re = re.compile(r"seq_(\d+)\.pkl$")
+    files = []
+    log_entries = []
+    for fp in folder.glob("seq_*.pkl"):
+        m = seq_re.search(fp.name)
+        if m:
+            files.append((int(m.group(1)), fp))
+    files.sort(key=lambda x: x[0])
+
+    if not files:
+        raise FileNotFoundError(f"No seq_*.pkl files in:\n  {folder}")
+
+    feats = []
+    for _, fp in files:
+        with open(fp, "rb") as f:
+            try:
+                obj = pickle.load(f)
+            except ModuleNotFoundError as e:
+                if "numpy._core" in str(e):
+                    f.seek(0)
+                    obj = _CompatUnpickler(f).load()
+                else:
+                    raise
+        feats.append(np.asarray(obj[feature_key]).reshape(-1).astype(np.float32, copy=False))
+
+        nan_count = np.isnan(obj[feature_key]).sum()
+        inf_count = np.isinf(obj[feature_key]).sum()
+        if nan_count or inf_count:
+            log_entries.append(
+                f"{subject}, {fp.parent.name}/{fp.name}, NaN={nan_count}, Inf={inf_count}"
+            )
+
+    import os
+    report_dir = "feature_nan_inf_report"
+    os.makedirs(report_dir, exist_ok=True)
+
+    if log_entries:
+        with open(os.path.join(report_dir, f"{subject}.txt"), "a") as log:
+            log.write("\n".join(log_entries) + "\n")
+    return np.stack(feats, axis=0)  # [N, F]
 # --------------------------- I/O ---------------------------
 
 def read_sequences(
@@ -27,8 +88,19 @@ def read_sequences(
 
     out: Dict[str, Dict[str, List[str]]] = {}
     for p in files:
-        df = pd.read_csv(p).dropna(subset=[input_col, output_col]).reset_index(drop=True)
-        x = df[input_col].astype(str).tolist()
+        if 'features' in input_col.lower():
+            df = pd.read_csv(p).dropna(subset=[output_col]).reset_index(drop=True)
+            # df = pd.read_csv(p).dropna(subset=[output_col]).loc[
+            #     lambda d: ~d[[output_col]].isin(['CL112', 'CL122']).any(axis=1)].reset_index(drop=True)
+            x = df[output_col].astype(str).tolist()
+
+        else:
+            df = pd.read_csv(p).dropna(subset=[input_col, output_col]).reset_index(drop=True)
+            # df = pd.read_csv(p).dropna(subset=[input_col, output_col]).loc[
+            #     lambda d: ~d[[input_col, output_col]].isin(['CL112', 'CL122']).any(axis=1)].reset_index(drop=True)
+
+            x = df[input_col].astype(str).tolist()
+
         y = df[output_col].astype(str).tolist()
         if len(x) != len(y):
             raise RuntimeError(f"[{p.stem}] input/output length mismatch")
@@ -46,10 +118,13 @@ def split_subjects(subjects: List[str], train_ratio: float, val_ratio: float, se
     return s[:n_tr], s[n_tr:n_tr + n_va], s[n_tr + n_va:]
 
 
-def build_maps(raw: Dict[str, Dict[str, List[str]]], train_subjects: List[str]):
+def build_maps(raw: Dict[str, Dict[str, List[str]]], train_subjects: List[str]=None):
     """Build token/label maps from TRAIN only (fast via set-union)."""
     # tok = {PAD_TOKEN: 0, UNK_TOKEN: 1}
     # lab = {UNK_LABEL: 0}
+    
+    if train_subjects is None:
+        train_subjects = list(raw.keys())
 
     x_uniq, y_uniq = set(), set()
     for s in train_subjects:
@@ -140,6 +215,24 @@ def _big_start_samples(total_samples: int, big_size: int, big_stride: int, cover
 
 
 # --------------------------- core (subject-wise) ---------------------------
+import numpy as np
+
+def reshape_y_to_x(Y_small, X_small):
+    if Y_small.shape == X_small.shape:
+        return Y_small
+
+    n, w_in = Y_small.shape
+    w_out = X_small.shape[1]
+    edges = np.linspace(0, w_in, w_out + 1).astype(int)
+
+    Y_new = np.empty((n, w_out), dtype=Y_small.dtype)
+    for i in range(w_out):
+        s, e = edges[i], edges[i + 1]
+        chunk = Y_small[:, s:e]
+        Y_new[:, i] = [np.bincount(row).argmax() for row in chunk.astype(np.int64)]
+
+    return Y_new
+
 def subject_to_big_items_over_small_windows(
     x_ids: np.ndarray,
     y_ids: np.ndarray,
@@ -149,6 +242,8 @@ def subject_to_big_items_over_small_windows(
     small_seconds: float,
     small_overlap_seconds: Optional[float],
     cover_all: bool,
+    input_col: str,
+    subject: str,
 ) -> List[Tuple[np.ndarray, np.ndarray]]:
     """
     Small windows first (FULL only, no padding), then BIG windows over the small-window axis.
@@ -170,8 +265,17 @@ def subject_to_big_items_over_small_windows(
     if small_starts.size == 0:
         return []
 
-    X_small = _gather_windows_1d(x_ids, small_starts, small_size)  # [Ns, W]
     Y_small = _gather_windows_1d(y_ids, small_starts, small_size)  # [Ns, W]
+    if  'features' in input_col.lower():
+        X_small = load_subject_feature_vectors(
+            "/home/mkfari/Data4Sim_New/final data4sim/features/deep_features", subject)
+        print("NaN:", np.isnan(X_small).sum(), "Inf:", np.isinf(X_small).sum(), "Subject:", subject)
+
+        m = min(len(X_small), len(Y_small))
+        X_small, Y_small = X_small[:m], Y_small[:m]
+        # Y_small = reshape_y_to_x(Y_small, X_small)
+    else:
+        X_small = _gather_windows_1d(x_ids, small_starts, small_size)  # [Ns, W]
     Ns = int(X_small.shape[0])
 
     # ---- BIG windows over small windows (batch-like, variable last) ----
@@ -208,6 +312,7 @@ def build_items(
     small_sec: float,
     small_ov_sec: Optional[float],
     cover_all: bool,
+    input_col:str,
 ) -> List[Tuple[np.ndarray, np.ndarray]]:
     """
     Build a flat list of BIG-window items (X_big, Y_big) for given subjects.
@@ -217,11 +322,11 @@ def build_items(
     # pad_id = token2id[PAD_TOKEN]
 
     items: List[Tuple[np.ndarray, np.ndarray]] = []
-    for s in subjects:
+    for subject in subjects:
         # x_ids = np.fromiter((token2id.get(t, unk_x) for t in raw[s]["x"]), dtype=np.int64)
         # y_ids = np.fromiter((label2id.get(v, unk_y) for v in raw[s]["y"]), dtype=np.int64)
-        x_ids = np.fromiter((token2id[t] for t in raw[s]["x"]), dtype=np.int64)
-        y_ids = np.fromiter((label2id[v] for v in raw[s]["y"]), dtype=np.int64)
+        x_ids = np.fromiter((token2id[t] for t in raw[subject]["x"]), dtype=np.int64)
+        y_ids = np.fromiter((label2id[v] for v in raw[subject]["y"]), dtype=np.int64)
 
         items.extend(
             subject_to_big_items_over_small_windows(
@@ -233,6 +338,8 @@ def build_items(
                 small_seconds=small_sec,
                 small_overlap_seconds=small_ov_sec,
                 cover_all=cover_all,
+                input_col=input_col,
+                subject=subject,
             )
         )
     return items

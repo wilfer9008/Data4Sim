@@ -21,7 +21,15 @@ class BigWindowSeqDataset(Dataset):
 
     def __getitem__(self, i: int):
         X, Y = self.items[i]
+        if np.isnan(X).any() or np.isnan(Y).any():
+            print("NaN detected:",
+                  "X_nan=", np.isnan(X).sum(),
+                  "Y_nan=", np.isnan(Y).sum())
+
+        if np.issubdtype(X.dtype, np.floating):
+            return torch.from_numpy(X.astype(np.float64)), torch.from_numpy(Y.astype(np.int64))
         return torch.from_numpy(X.astype(np.int64)), torch.from_numpy(Y.astype(np.int64))
+
 
 
 def pad_big_windows(batch, pad_token_id: int):

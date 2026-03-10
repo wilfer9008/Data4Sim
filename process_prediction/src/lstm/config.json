@@ -2,8 +2,8 @@
   "data": {
     "data_dir": "/home/mkfari/Data4Sim_New/final data4sim/data_preprocessed",
     "csv_glob": "S*.csv",
-    "input_col": "input",
-    "output_col": "output",
+    "input_col": "features",
+    "output_col": "Mid-Level Process",
     "hz": 100,
 
     "big_window_minutes": 30,
@@ -20,21 +20,21 @@
     "val_ratio": 0.1,
     "seed": 42
   },
-
   "train": {
     "batch_size": 1,
     "epochs": 100,
     "lr": 0.001,
-    "weight_decay": 0.00001,
+    "weight_decay": 0.1,
     "grad_clip": 1.0,
+    "l1_lambda": 1e-05,
     "device": "cuda",
-    "out_dir": "runs/lstm_process_mining"
+    "out_dir": "runs/lstm_process_mining",
+    "optimizer": "adamw"
   },
-
   "model": {
     "emb_dim": 64,
-    "hidden_dim": 256,
-    "layers": 3,
-    "dropout": 0.0
+    "hidden_dim": 64,
+    "layers": 2,
+    "dropout": 0.3
   }
 }

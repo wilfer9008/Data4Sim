@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 from config_io import load_config
 from windowing import read_sequences, split_subjects, build_maps, build_items#, PAD_TOKEN
 from dataset import BigWindowSeqDataset, pad_big_windows
-from model import LSTM
+from model import LSTM, EncoderDecoderFeatureLSTM
 from train_eval import set_seed, train_loop
 
 
@@ -37,7 +37,8 @@ def main(cfg_path: str = "config.json"):
     set_seed(int(sp["seed"]))
     out_dir = Path(tr["out_dir"]); out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "config_used.json").write_text(json.dumps(cfg, indent=2), encoding="utf-8")
-
+    print(out_dir)
+    print(cfg_path)
     #####################################################################
     # 2) Select device
     #####################################################################
@@ -57,7 +58,7 @@ def main(cfg_path: str = "config.json"):
     #####################################################################
     # 4) Build vocab / label maps (train only) + save them
     #####################################################################
-    token2id, label2id = build_maps(raw, tr_sub)
+    token2id, label2id = build_maps(raw)
     (out_dir / "token2id.json").write_text(json.dumps(token2id, indent=2), encoding="utf-8")
     (out_dir / "label2id.json").write_text(json.dumps(label2id, indent=2), encoding="utf-8")
 
@@ -70,10 +71,11 @@ def main(cfg_path: str = "config.json"):
     small_sec = float(d["small_window_seconds"])
     small_ov = float(d["small_overlap_seconds"])
     cover_all = bool(d.get("cover_all_samples", True))
+    input_col = d["input_col"]
 
-    train_items = build_items(raw, tr_sub, token2id, label2id, hz, big_min, big_ov, small_sec, small_ov, cover_all)
-    val_items   = build_items(raw, va_sub, token2id, label2id, hz, big_min, 0, small_sec, 0, cover_all)
-    test_items  = build_items(raw, te_sub, token2id, label2id, hz, big_min, 0, small_sec, 0, cover_all)
+    train_items = build_items(raw, tr_sub, token2id, label2id, hz, big_min, big_ov, small_sec, small_ov, cover_all, input_col)
+    val_items   = build_items(raw, va_sub, token2id, label2id, hz, big_min, 0, small_sec, 0, cover_all, input_col)
+    test_items  = build_items(raw, te_sub, token2id, label2id, hz, big_min, 0, small_sec, 0, cover_all, input_col)
 
     print(f"[INFO] big windows: train={len(train_items)} val={len(val_items)} test={len(test_items)}")
 
@@ -94,22 +96,32 @@ def main(cfg_path: str = "config.json"):
     #####################################################################
     # 7) Build model + optimizer
     #####################################################################
-    model = LSTM(
-        vocab_size=len(token2id),
-        num_classes=len(label2id),
-        emb_dim=int(mo["emb_dim"]),
-        hid=int(mo["hidden_dim"]),
-        layers=int(mo["layers"]),
-        dropout=float(mo["dropout"]),
-        # pad_id=pad_id,
-    ).to(device)
+    if 'feature' in input_col and True:
+        model = EncoderDecoderFeatureLSTM(
+            num_classes=len(label2id),
+            emb_dim=int(mo["emb_dim"]),
+            hid=int(mo["hidden_dim"]),
+            layers=int(mo["layers"]),
+            dropout=float(mo["dropout"]),
+            output_steps=train_items[0][1].shape[1]
+        ).to(device)
+    else:
+        model = LSTM(
+            vocab_size=len(token2id),
+            num_classes=len(label2id),
+            emb_dim=int(mo["emb_dim"]),
+            hid=int(mo["hidden_dim"]),
+            layers=int(mo["layers"]),
+            dropout=float(mo["dropout"]),
+            # pad_id=pad_id,
+        ).to(device)
 
     opt = torch.optim.AdamW(model.parameters(), lr=float(tr["lr"]), weight_decay=float(tr["weight_decay"]))
 
     #####################################################################
     # 8) Train loop + track metrics + save best/last
     #####################################################################
-    learning_results = train_loop(cfg, model, opt, device, dl_tr, dl_va, dl_te, out_dir)
+    learning_results = train_loop(cfg, model, opt, device, dl_tr, dl_va, dl_te, out_dir, input_col)
 
     #####################################################################
     # 9) Save metrics to JSON
@@ -118,4 +130,5 @@ def main(cfg_path: str = "config.json"):
 
 
 if __name__ == "__main__":
+    # main("config_hp_tuning.json")
     main("config.json")
